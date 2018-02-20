@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:genTemplate="http://schemas.microsoft.com/appx/developer/windowsTemplateStudio"
+  IgnorableNamespaces="uap mp genTemplate">
+
+  <Identity
+    Name="547CC3C9-D2CB-4B5E-AEFF-BE16C6B99C8C"
+    Publisher="CN=Starz0r"
+    Version="1.0.0.0" />
+
+  <mp:PhoneIdentity PhoneProductId="547CC3C9-D2CB-4B5E-AEFF-BE16C6B99C8C" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+
+  <Properties>
+    <DisplayName>mpv_csharp_uwp</DisplayName>
+    <PublisherDisplayName>Starz0r</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.0.0" MaxVersionTested="10.0.0.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="x-generate"/>
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="$targetnametoken$.exe"
+      EntryPoint="mpv_csharp_uwp.App">
+      <uap:VisualElements
+        DisplayName="mpv_csharp_uwp"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        Description="mpv_csharp_uwp"
+        BackgroundColor="transparent">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"/>
+        <uap:SplashScreen Image="Assets\SplashScreen.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+  </Capabilities>
+
+  <genTemplate:Metadata>
+    <genTemplate:Item Name="generator" Value="Windows Template Studio"/>
+    <genTemplate:Item Name="wizardVersion" Version="v1.7.18030.1" />
+    <genTemplate:Item Name="templatesVersion" Version="v1.7.18037.1" />
+    <genTemplate:Item Name="projectType" Value="Blank" />
+    <genTemplate:Item Name="framework" Value="CodeBehind" />
+  </genTemplate:Metadata>
+</Package>
