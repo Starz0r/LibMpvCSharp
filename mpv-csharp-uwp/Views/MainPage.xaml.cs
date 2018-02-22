@@ -1,12 +1,9 @@
 ﻿using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Windows.Foundation;
 using Windows.Storage;
-using Windows.System.Threading;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -20,7 +17,6 @@ namespace mpv_csharp_uwp.Views
         private IntPtr mRenderSurface;
         private OpenGLES mOpenGLES;
         private object mRenderSurfaceCriticalSection = new object();
-        private IAsyncAction mRenderLoopWorker;
         Mpv mpv;
 
         private GCHandle streamcb_current_file_allocated;
