@@ -125,8 +125,6 @@ namespace mpv_csharp_uwp
         // Executed when the OpenGL Update Callback is requested
         public MpvErrorCode OpenGLCallbackDraw(int framebuffer_object, int width, int height)
         {
-            // callback_ptr might get garbage collected if it isn't used too much, so we have to keep it alive this way
-            callback_ptr = Marshal.GetFunctionPointerForDelegate<MyOpenGLCallbackUpdate>(callback_method);
             return (MpvErrorCode)mpv_opengl_cb_draw(libmpv_gl_context, framebuffer_object, width, height);
         }
 
