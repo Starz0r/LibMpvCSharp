@@ -209,8 +209,7 @@ namespace mpv_csharp_uwp.Views
             mpv = new Mpv();
             mpv.OpenGLCallbackInitialize(null, MyProcAddress, IntPtr.Zero);
             mpv.OpenGLCallbackSetUpdate(DrawNextFrame, IntPtr.Zero);
-
-            mpv.ExecuteCommand("loadfile", "https://download.blender.org/peach/bigbuckbunny_movies/big_buck_bunny_480p_h264.mov");
+            mpv.ExecuteCommand("loadfile", "http://download.blender.org/peach/bigbuckbunny_movies/big_buck_bunny_480p_h264.mov");
         }
     }
 }
