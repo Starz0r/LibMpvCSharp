@@ -57,8 +57,6 @@ namespace mpv_csharp_uwp.Views
             mOpenGLES = new OpenGLES();
             mRenderSurface = OpenGLES.EGL_NO_SURFACE;
 
-            Window.Current.VisibilityChanged += OnVisibilityChanged;
-
             Loaded += OnPageLoaded;
             Unloaded += OnPageUnloaded;
         }
@@ -67,26 +65,12 @@ namespace mpv_csharp_uwp.Views
         {
             // The SwapChainPanel has been created and arranged in the page layout, so EGL can be initialized. 
             CreateRenderSurface();
-            StartRenderLoop();
             InitalizeMpvDynamic();
         }
 
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
         {
-            StopRenderLoop();
             DestroyRenderSurface();
-        }
-
-        private void OnVisibilityChanged(object sender, VisibilityChangedEventArgs e)
-        {
-            if (e.Visible && mRenderSurface != OpenGLES.EGL_NO_SURFACE)
-            {
-                StartRenderLoop();
-            }
-            else
-            {
-                StopRenderLoop();
-            }
         }
 
         private void CreateRenderSurface()
@@ -104,72 +88,6 @@ namespace mpv_csharp_uwp.Views
                 mOpenGLES.DestroySurface(mRenderSurface);
             }
             mRenderSurface = OpenGLES.EGL_NO_SURFACE;
-        }
-
-        private void RecoverFromLostDevice()
-        {
-            // Stops the render loop, reset OpenGLES, recreates the render surface
-            // and starts the render loop again to recover from a lost device.
-            StopRenderLoop();
-
-            lock (mRenderSurfaceCriticalSection)
-            {
-                DestroyRenderSurface();
-                mOpenGLES.Reset();
-                CreateRenderSurface();
-            }
-            StartRenderLoop();
-        }
-
-        private void StartRenderLoop()
-        {
-            // If the render loop is already running then do not start another thread
-            if (mRenderLoopWorker != null && mRenderLoopWorker.Status == AsyncStatus.Started)
-            {
-                return;
-            }
-
-            // Run task on a dedicated high priority background thread.
-            mRenderLoopWorker = ThreadPool.RunAsync(RenderLoop, WorkItemPriority.High, WorkItemOptions.TimeSliced);
-        }
-
-        private void RenderLoop(IAsyncAction action)
-        {
-            lock (mRenderSurfaceCriticalSection)
-            {
-                mOpenGLES.MakeCurrent(mRenderSurface);
-
-                SimpleRenderer renderer = new SimpleRenderer();
-
-                while (action.Status == AsyncStatus.Started)
-                {
-                    var size = mOpenGLES.GetSurfaceDimensions(mRenderSurface);
-
-                    // Logic to update the scene could go here
-
-                    renderer.UpdateWindowSize(size);
-                    renderer.Draw();
-
-                    // The call to the eglSawpBuffers might not be successful (i.e. due to Device Lost)
-                    // If the call fails, then we must reinitialize EGL and the GL resources.
-                    if (mOpenGLES.SwapBuffers(mRenderSurface) != OpenGLES.EGL_TRUE)
-                    {
-                        // XAML objects like the SwapChainPanel must only be manipulated on the UI thread.
-                        videoBox.Dispatcher.RunAsync(CoreDispatcherPriority.High, new DispatchedHandler(() => { RecoverFromLostDevice(); }));
-
-                        return;
-                    }
-                }
-            }
-        }
-
-        private void StopRenderLoop()
-        {
-            if (mRenderLoopWorker != null)
-            {
-                mRenderLoopWorker.Cancel();
-                mRenderLoopWorker = null;
-            }
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
@@ -207,12 +125,7 @@ namespace mpv_csharp_uwp.Views
                 mpv.OpenGLCallbackDraw(0, w, -h);
                 mOpenGLES.SwapBuffers(mRenderSurface);
                 mpv.OpenGLCallbackReportFlip();
-
-                // Stop the render loop to prevent the frame from being overwritten
-                StopRenderLoop();
             }));
-
-            return;
         }
 
         public Int64 StreamCbReadFn(IntPtr cookie, IntPtr buf, UInt64 numbytes)
