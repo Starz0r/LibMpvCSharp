@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Windows.Foundation;
 using Windows.Storage;
 using Windows.Storage.Streams;
 
@@ -31,33 +33,53 @@ namespace mpv_csharp_uwp
             public IntPtr CloseFn;
         }
 
+        public struct MPV_EVENT
+        {
+            public MpvEventId id;
+            public int error;
+            public UInt64 reply_userdata;
+            public IntPtr data;
+        }
+
+        public struct MPV_EVENT_LOG_MESSAGE
+        {
+            public String prefix;
+            public String level;
+            public String text;
+            public Int32 log_level;
+        }
+
         // Members
         private MyOpenGLCallbackUpdate callback_method;
         private GCHandle callback_gc;
         private IntPtr callback_ptr;
         private IntPtr libmpv_handle;
         private IntPtr libmpv_gl_context;
+        private IAsyncAction event_worker;
         #endregion Definitions
 
         #region Methods
         public Mpv()
         {
             libmpv_handle = mpv_create();
-            Initalize(libmpv_handle);
+            mpv_initialize(libmpv_handle);
             libmpv_gl_context = GetSubApi(1);
-        }
+            SetOptionString("msg-level", "all=v");
+            SetOptionString("vo", "opengl-cb");
+            mpv_request_log_messages(libmpv_handle, "terminal-default");
 
-        // Creates a new mpv object
-        private IntPtr Create()
-        {
-            return mpv_create();
-        }
-
-
-        // Initalizes the mpv object, runs right after getting created
-        private MpvErrorCode Initalize(IntPtr mpv_handle)
-        {
-            return (MpvErrorCode)mpv_initialize(mpv_handle);
+            event_worker = Windows.System.Threading.ThreadPool.RunAsync((workItem) =>
+            {
+                while (workItem.Status == AsyncStatus.Started)
+                {
+                    IntPtr ev = mpv_wait_event(libmpv_handle, -1.0);
+                    if (ev == IntPtr.Zero) continue;
+                    MPV_EVENT e = Marshal.PtrToStructure<MPV_EVENT>(ev);
+                    if (e.id != MpvEventId.MPV_EVENT_LOG_MESSAGE) continue;
+                    MPV_EVENT_LOG_MESSAGE l = Marshal.PtrToStructure<MPV_EVENT_LOG_MESSAGE>(e.data);
+                    Debug.Write("[" + l.prefix + "] " + l.text);
+                }
+            });
         }
 
         // Sets a an mpv option with the value being a string
@@ -196,6 +218,13 @@ namespace mpv_csharp_uwp
             MPV_ERROR_GENERIC = -20
         }
 
+        public enum MpvEventId
+        {
+            MPV_EVENT_NONE,
+            MPV_EVENT_SHUTDOWN,
+            MPV_EVENT_LOG_MESSAGE
+        }
+
         public enum MpvFormat
         {
             MPV_FORMAT_NONE,
@@ -252,6 +281,12 @@ namespace mpv_csharp_uwp
 
         [DllImport(libmpv, EntryPoint = "mpv_stream_cb_add_ro", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
         private static extern int mpv_stream_cb_add_ro(IntPtr mpv_handle, String protocol, String userdata, MyStreamCbOpenFn openfn);
+
+        [DllImport(libmpv, EntryPoint = "mpv_request_log_messages", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
+        private static extern MpvErrorCode mpv_request_log_messages(IntPtr mpv_handle, String level);
+
+        [DllImport(libmpv, EntryPoint = "mpv_wait_event", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr mpv_wait_event(IntPtr mpv_handle, double timeout);
         #endregion Imports
     }
 }

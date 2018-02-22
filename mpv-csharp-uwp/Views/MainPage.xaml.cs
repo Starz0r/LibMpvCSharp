@@ -1,5 +1,6 @@
 ﻿using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -210,12 +211,6 @@ namespace mpv_csharp_uwp.Views
             mOpenGLES.MakeCurrent(mRenderSurface);
 
             mpv = new Mpv();
-
-            Windows.Storage.StorageFolder installationPath = Windows.Storage.ApplicationData.Current.LocalFolder;
-            mpv.SetOptionString("log-file", @installationPath.Path + @"\koala.log");
-            mpv.SetOptionString("msg-level", "all=v");
-            mpv.SetOptionString("vo", "opengl-cb");
-
             mpv.OpenGLCallbackInitialize(null, MyProcAddress, IntPtr.Zero);
             mpv.OpenGLCallbackSetUpdate(DrawNextFrame, IntPtr.Zero);
 
