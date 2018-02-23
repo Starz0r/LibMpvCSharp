@@ -1,292 +1,121 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
+﻿using MPVLib;
+using static MPVLib.client;
+using static MPVLib.opengl_cb;
+using static MPVLib.stream_cb;
+using System;
 using System.Linq;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading.Tasks;
 using Windows.Foundation;
-using Windows.Storage;
-using Windows.Storage.Streams;
 
 namespace mpv_csharp_uwp
 {
     public class Mpv
     {
-        #region Definitions
-        // Delegates
-        public delegate IntPtr MyGetProcAddress(IntPtr context, String name);
-        public delegate void MyOpenGLCallbackUpdate(IntPtr context);
-        public delegate Int64 MyStreamCbReadFn(IntPtr cookie, IntPtr buf, UInt64 numbytes);
-        public delegate Int64 MyStreamCbSeekFn(IntPtr cookie, Int64 offset);
-        public delegate void MyStreamCbCloseFn(IntPtr cookie);
-        public delegate Int64 MyStreamCbSizeFn(IntPtr cookie);
-        public delegate int MyStreamCbOpenFn(String userdata, String uri, ref MPV_STREAM_CB_INFO info);
-
-        // Structs
-        public struct MPV_STREAM_CB_INFO
-        {
-            public IntPtr Cookie;
-            public IntPtr ReadFn;
-            public IntPtr SeekFn;
-            public IntPtr SizeFn;
-            public IntPtr CloseFn;
-        }
-
-        public struct MPV_EVENT
-        {
-            public MpvEventId id;
-            public int error;
-            public UInt64 reply_userdata;
-            public IntPtr data;
-        }
-
-        public struct MPV_EVENT_LOG_MESSAGE
-        {
-            public String prefix;
-            public String level;
-            public String text;
-            public Int32 log_level;
-        }
-
-        // Members
-        private MyOpenGLCallbackUpdate callback_method;
-        private GCHandle callback_gc;
-        private IntPtr callback_ptr;
-        private IntPtr libmpv_handle;
-        private IntPtr libmpv_gl_context;
-        private IAsyncAction event_worker;
-        #endregion Definitions
+        private MpvOpenglCbUpdateFn glcallback;
+        private MpvHandle handle;
+        private MpvOpenglCbContext glctx;
+        private IAsyncAction worker;
 
         #region Methods
         public Mpv()
         {
-            libmpv_handle = mpv_create();
-            mpv_initialize(libmpv_handle);
-            libmpv_gl_context = GetSubApi(1);
-            SetOptionString("msg-level", "all=v");
-            SetOptionString("vo", "opengl-cb");
-            mpv_request_log_messages(libmpv_handle, "terminal-default");
+            handle = MpvCreate();
+            MpvInitialize(handle);
+            glctx = MpvOpenglCbContext.__CreateInstance(MpvGetSubApi(handle, MpvSubApi.MPV_SUB_API_OPENGL_CB));
+            SetOption("msg-level", "all=v");
+            SetOption("vo", "opengl-cb");
+            MpvRequestLogMessages(handle, "terminal-default");
 
-            event_worker = Windows.System.Threading.ThreadPool.RunAsync((workItem) =>
+            worker = Windows.System.Threading.ThreadPool.RunAsync((workItem) =>
             {
                 while (workItem.Status == AsyncStatus.Started)
                 {
-                    IntPtr ev = mpv_wait_event(libmpv_handle, -1.0);
-                    if (ev == IntPtr.Zero) continue;
-                    MPV_EVENT e = Marshal.PtrToStructure<MPV_EVENT>(ev);
-                    if (e.id != MpvEventId.MPV_EVENT_LOG_MESSAGE) continue;
-                    MPV_EVENT_LOG_MESSAGE l = Marshal.PtrToStructure<MPV_EVENT_LOG_MESSAGE>(e.data);
-                    Debug.Write("[" + l.prefix + "] " + l.text);
+                    var ev = MpvWaitEvent(handle, -1.0);
+                    if (ev == null) continue;
+                    if (ev.EventId != MpvEventId.MPV_EVENT_LOG_MESSAGE) continue;
+                    var msg = MpvEventLogMessage.__CreateInstance(ev.Data);
+                    Debug.Write("[" + msg.Prefix + "] " + msg.Text);
                 }
             });
         }
 
         // Sets a an mpv option with the value being a string
-        public MpvErrorCode SetOptionString(string option, string value)
+        public MpvError SetOption(string option, string value)
         {
-            return (MpvErrorCode)mpv_set_option_string(libmpv_handle, GetUtf8Bytes(option), GetUtf8Bytes(value));
+            return (MpvError)MpvSetOptionString(handle, option, value);
         }
 
-        // Gets API Contextes, currently only used to get mpv's OpenGL context, internal use only
-        private IntPtr GetSubApi(int value)
+        // Get an mpv property string value
+        public unsafe string GetPropertyString(string property)
         {
-            return mpv_get_sub_api(libmpv_handle, value);
+            var val = MpvGetPropertyString(handle, property);
+            if (val == null) return null;
+            return Marshal.PtrToStringAnsi((IntPtr)val);
+        }
+
+        public unsafe bool GetPropertyBool(string property)
+        {
+            int val = 0;
+            MpvGetProperty(handle, property, MpvFormat.MPV_FORMAT_FLAG, new IntPtr(&val));
+            return val == 1;
+        }
+
+        // Sets an mpv property value
+        public MpvError SetProperty(string property, string value)
+        {
+            return (MpvError)MpvSetPropertyString(handle, property, value);
         }
 
         // Executes a command through mpv
-        public MpvErrorCode ExecuteCommand(params string[] args)
+        public unsafe MpvError ExecuteCommand(params string[] args)
         {
-            IntPtr[] byteArrayPointers;
-            var mainPtr = AllocateUtf8IntPtrArrayWithSentinel(args, out byteArrayPointers);
-            MpvErrorCode result = (MpvErrorCode)mpv_command(libmpv_handle, mainPtr);
-            foreach (var ptr in byteArrayPointers)
+            var list = new sbyte*[args.Length + 1];
+            for (int i = 0; i < args.Length; i++)
             {
-                Marshal.FreeHGlobal(ptr);
+                var bytes = Encoding.UTF8.GetBytes(args[i] + "\0");
+                var sbytes = (from b in bytes select Convert.ToSByte(b)).ToArray();
+                fixed (sbyte* ptr = sbytes)
+                {
+                    list[i] = ptr;
+                }
             }
-            Marshal.FreeHGlobal(mainPtr);
-            return result;
-        }
-
-        // Returns a corresponding property tuple from mpv
-        public Tuple<MpvErrorCode, String> GetProperty(string property)
-        {
-            IntPtr lpBuffer = IntPtr.Zero;
-            int err = mpv_get_property_string(libmpv_handle, GetUtf8Bytes(property), (int)MpvFormat.MPV_FORMAT_STRING, ref lpBuffer);
-            String result = Marshal.PtrToStringAnsi(lpBuffer);
-            return Tuple.Create((MpvErrorCode)err, result);
-        }
-
-        // Sets a mpv property with the specified value
-        public MpvErrorCode SetProperty(string property, MpvFormat format, string value)
-        {
-            var temp = GetUtf8Bytes(value);
-            return (MpvErrorCode)mpv_set_property(libmpv_handle, GetUtf8Bytes(property), (int)format, ref temp);
+            fixed (sbyte** ptr = list)
+            {
+                return (MpvError)MpvCommand(handle, ptr);
+            }
         }
 
         // Initalizes the OpenGL Callbacks
-        public MpvErrorCode OpenGLCallbackInitialize(byte[] exts, MyGetProcAddress callback, IntPtr fn_context)
+        public MpvError OpenGLCallbackInitialize(string exts, MpvOpenglCbGetProcAddressFn get_proc_addr, IntPtr fn_context)
         {
-            return (MpvErrorCode)mpv_opengl_cb_init_gl(libmpv_gl_context, exts, callback, fn_context);
-
+            return (MpvError)MpvOpenglCbInitGl(glctx, exts, get_proc_addr, fn_context);
         }
 
         // Sets OpenGL Update Callback for mpv
-        public MpvErrorCode OpenGLCallbackSetUpdate(MyOpenGLCallbackUpdate callback, IntPtr callback_context)
+        public void OpenGLCallbackSetUpdate(MpvOpenglCbUpdateFn callback, IntPtr ctx)
         {
-            // Set class members
-            callback_method = callback;
-            callback_ptr = Marshal.GetFunctionPointerForDelegate<MyOpenGLCallbackUpdate>(callback);
-
-            // Allocate the pointer so it doesn't get garbage collected
-            callback_gc = GCHandle.Alloc(callback_ptr, GCHandleType.Pinned);
-
-            return (MpvErrorCode)mpv_opengl_cb_set_update_callback(libmpv_gl_context, callback_ptr, callback_context);
+            glcallback = callback;
+            MpvOpenglCbSetUpdateCallback(glctx, callback, ctx);
         }
 
         // Executed when the OpenGL Update Callback is requested
-        public MpvErrorCode OpenGLCallbackDraw(int framebuffer_object, int width, int height)
+        public MpvError OpenGLCallbackDraw(int fbo, int width, int height)
         {
-            return (MpvErrorCode)mpv_opengl_cb_draw(libmpv_gl_context, framebuffer_object, width, height);
+            return (MpvError)MpvOpenglCbDraw(glctx, fbo, width, height);
         }
 
         // Reports to mpv that the frame has been rendered, entirely optional
-        public MpvErrorCode OpenGLCallbackReportFlip()
+        public MpvError OpenGLCallbackReportFlip()
         {
-            return (MpvErrorCode)mpv_opengl_cb_report_flip(libmpv_gl_context);
+            return (MpvError)MpvOpenglCbReportFlip(glctx, 0);
         }
 
-        // Renders the OpenGL Callback frame that was returned
-        public MpvErrorCode OpenGLCallbackRender()
+        public MpvError StreamCbAddReadOnly(String proto, IntPtr userdata, MpvStreamCbOpenRoFn open_fn)
         {
-            return (MpvErrorCode)mpv_opengl_cb_render(libmpv_gl_context);
+            return (MpvError)MpvStreamCbAddRo(handle, proto, userdata, open_fn);
         }
-
-        public MpvErrorCode StreamCbAddReadOnly(String proto, String userdata, MyStreamCbOpenFn open_fn)
-        {
-            return (MpvErrorCode)mpv_stream_cb_add_ro(libmpv_handle, proto, userdata, open_fn);
-        }
-
         #endregion Methods
-
-        #region Helpers
-        private byte[] GetUtf8Bytes(String s)
-        {
-            return Encoding.UTF8.GetBytes(s + "\0");
-        }
-
-        private IntPtr AllocateUtf8IntPtrArrayWithSentinel(string[] arr, out IntPtr[] byteArrayPointers)
-        {
-            int numberOfStrings = arr.Length + 1; // add extra element for extra null pointer last (sentinel)
-            byteArrayPointers = new IntPtr[numberOfStrings];
-            IntPtr rootPointer = Marshal.AllocCoTaskMem(IntPtr.Size * numberOfStrings);
-            for (int index = 0; index < arr.Length; index++)
-            {
-                var bytes = GetUtf8Bytes(arr[index]);
-                IntPtr unmanagedPointer = Marshal.AllocHGlobal(bytes.Length);
-                Marshal.Copy(bytes, 0, unmanagedPointer, bytes.Length);
-                byteArrayPointers[index] = unmanagedPointer;
-            }
-            Marshal.Copy(byteArrayPointers, 0, rootPointer, numberOfStrings);
-            return rootPointer;
-        }
-        #endregion Helpers
-
-        #region Enumeration
-        public enum MpvErrorCode
-        {
-            MPV_ERROR_SUCCESS = 0,
-            MPV_ERROR_EVENT_QUEUE_FULL = -1,
-            MPV_ERROR_NOMEM = -2,
-            MPV_ERROR_UNINITIALIZED = -3,
-            MPV_ERROR_INVALID_PARAMETER = -4,
-            MPV_ERROR_OPTION_NOT_FOUND = -5,
-            MPV_ERROR_OPTION_FORMAT = -6,
-            MPV_ERROR_OPTION_ERROR = -7,
-            MPV_ERROR_PROPERTY_NOT_FOUND = -8,
-            MPV_ERROR_PROPERTY_FORMAT = -9,
-            MPV_ERROR_PROPERTY_UNAVAILABLE = -10,
-            MPV_ERROR_PROPERTY_ERROR = -11,
-            MPV_ERROR_COMMAND = -12,
-            MPV_ERROR_LOADING_FAILED = -13,
-            MPV_ERROR_AO_INIT_FAILED = -14,
-            MPV_ERROR_VO_INIT_FAILED = -15,
-            MPV_ERROR_NOTHING_TO_PLAY = -16,
-            MPV_ERROR_UNKNOWN_FORMAT = -17,
-            MPV_ERROR_UNSUPPORTED = -18,
-            MPV_ERROR_NOT_IMPLEMENTED = -19,
-            MPV_ERROR_GENERIC = -20
-        }
-
-        public enum MpvEventId
-        {
-            MPV_EVENT_NONE,
-            MPV_EVENT_SHUTDOWN,
-            MPV_EVENT_LOG_MESSAGE
-        }
-
-        public enum MpvFormat
-        {
-            MPV_FORMAT_NONE,
-            MPV_FORMAT_STRING,
-            MPV_FORMAT_OSD_STRING,
-            MPV_FORMAT_FLAG,
-            MPV_FORMAT_INT64,
-            MPV_FORMAT_DOUBLE,
-            MPV_FORMAT_NODE,
-            MPV_FORMAT_NODE_ARRAY,
-            MPV_FORMAT_NODE_MAP,
-            MPV_FORMAT_BYTE_ARRAY
-        }
-        #endregion Enumeration
-
-        #region Imports
-        private const string libmpv = "mpv.dll";
-
-        [DllImport(libmpv, EntryPoint = "mpv_create", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr mpv_create();
-
-        [DllImport(libmpv, EntryPoint = "mpv_initialize", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_initialize(IntPtr mpv_handle);
-
-        [DllImport(libmpv, EntryPoint = "mpv_set_option_string", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_set_option_string(IntPtr mpv_handle, byte[] option, byte[] value);
-
-        [DllImport(libmpv, EntryPoint = "mpv_get_sub_api", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr mpv_get_sub_api(IntPtr mpv_handle, int value);
-
-        [DllImport(libmpv, EntryPoint = "mpv_opengl_cb_init_gl", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_opengl_cb_init_gl(IntPtr gl_context, byte[] exts, MyGetProcAddress callback, IntPtr fn_context);
-
-        [DllImport(libmpv, EntryPoint = "mpv_opengl_cb_set_update_callback", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_opengl_cb_set_update_callback(IntPtr gl_context, IntPtr callback, IntPtr callback_context);
-
-        [DllImport(libmpv, EntryPoint = "mpv_command", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_command(IntPtr mpv_handle, IntPtr strings);
-
-        [DllImport(libmpv, EntryPoint = "mpv_opengl_cb_draw", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_opengl_cb_draw(IntPtr gl_context, int fbo, int width, int height);
-
-        [DllImport(libmpv, EntryPoint = "mpv_opengl_cb_report_flip", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_opengl_cb_report_flip(IntPtr gl_context, Int64 time = 0);
-
-        [DllImport(libmpv, EntryPoint = "mpv_opengl_cb_render", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_opengl_cb_render(IntPtr gl_context, int vp = 0);
-
-        [DllImport(libmpv, EntryPoint = "mpv_get_property_string", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_get_property_string(IntPtr mpv_handle, byte[] name, int format, ref IntPtr data);
-
-        [DllImport(libmpv, EntryPoint = "mpv_set_property", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_set_property(IntPtr mpv_handle, byte[] name, int format, ref byte[] data);
-
-        [DllImport(libmpv, EntryPoint = "mpv_stream_cb_add_ro", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_stream_cb_add_ro(IntPtr mpv_handle, String protocol, String userdata, MyStreamCbOpenFn openfn);
-
-        [DllImport(libmpv, EntryPoint = "mpv_request_log_messages", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern MpvErrorCode mpv_request_log_messages(IntPtr mpv_handle, String level);
-
-        [DllImport(libmpv, EntryPoint = "mpv_wait_event", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr mpv_wait_event(IntPtr mpv_handle, double timeout);
-        #endregion Imports
     }
 }
