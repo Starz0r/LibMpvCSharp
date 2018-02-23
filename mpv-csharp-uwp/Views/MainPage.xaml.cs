@@ -1,9 +1,6 @@
 ﻿using System;
 using System.ComponentModel;
-using System.IO;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using Windows.Storage;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -12,39 +9,11 @@ namespace mpv_csharp_uwp.Views
 {
     public sealed partial class MainPage : Page, INotifyPropertyChanged
     {
-        #region Definitions
-
         private IntPtr mRenderSurface;
         private OpenGLES mOpenGLES;
-        private object mRenderSurfaceCriticalSection = new object();
         Mpv mpv;
+        private MPVLib.MpvStreamCbInfo streamcb_info;
 
-        private GCHandle streamcb_current_file_allocated;
-        private StorageFile streamcb_file;
-        private IntPtr streamcb_file_pointer = IntPtr.Zero;
-        private String streamcb_userdata;
-        private Stream streamcb_stream;
-        private Byte[] streamcb_buffer;
-        private UInt64 streamcb_buffer_size;
-        private IntPtr streamcb_buffer_reference;
-
-        private Mpv.MyStreamCbReadFn streamcb_callback_read_method;
-        private IntPtr streamcb_callback_read_ptr;
-        private GCHandle streamcb_callback_read_gc;
-
-        private Mpv.MyStreamCbSeekFn streamcb_callback_seek_method;
-        private IntPtr streamcb_callback_seek_ptr;
-        private GCHandle streamcb_callback_seek_gc;
-
-        private Mpv.MyStreamCbSizeFn streamcb_callback_size_method;
-        private IntPtr streamcb_callback_size_ptr;
-        private GCHandle streamcb_callback_size_gc;
-
-        private Mpv.MyStreamCbCloseFn streamcb_callback_close_method;
-        private IntPtr streamcb_callback_close_ptr;
-        private GCHandle streamcb_callback_close_gc;
-
-        #endregion Definitions
 
         #region Events
         public MainPage()
@@ -63,11 +32,26 @@ namespace mpv_csharp_uwp.Views
             // The SwapChainPanel has been created and arranged in the page layout, so EGL can be initialized. 
             CreateRenderSurface();
             InitalizeMpvDynamic();
+            Window.Current.CoreWindow.KeyDown += OnKeyDown;
         }
 
         private void OnPageUnloaded(object sender, RoutedEventArgs e)
         {
             DestroyRenderSurface();
+            Window.Current.CoreWindow.KeyDown -= OnKeyDown;
+        }
+
+        private void OnKeyDown(CoreWindow window, KeyEventArgs e)
+        {
+            switch (e.VirtualKey)
+            {
+                case Windows.System.VirtualKey.Space:
+                    if (mpv.GetPropertyBool("pause"))
+                        mpv.SetProperty("pause", "no");
+                    else
+                        mpv.SetProperty("pause", "yes");
+                    break;
+            }
         }
 
         private void CreateRenderSurface()
@@ -125,78 +109,32 @@ namespace mpv_csharp_uwp.Views
             }));
         }
 
-        public Int64 StreamCbReadFn(IntPtr cookie, IntPtr buf, UInt64 numbytes)
+        public unsafe long StreamCbReadFn(IntPtr cookie, sbyte* buf, ulong nbytes)
         {
-            IntPtr fp = cookie;
-            streamcb_buffer_reference = buf;
-            streamcb_buffer_size = numbytes;
-
-            // * Not 64bit safe :(
-            streamcb_buffer = new Byte[numbytes];
-            int result = streamcb_stream.Read(streamcb_buffer, 0, Convert.ToInt32(numbytes));
-            Marshal.Copy(streamcb_buffer, 0, streamcb_buffer_reference, result);
-
-            // End of File
-            if (result == 0)
-            {
-                return 0;
-            }
-
-            return result;
-
-            // TODO: Add a try/catch to return a -1 on an exception
+            return 0;
         }
 
-        public Int64 StreamCbSeekFn(IntPtr cookie, Int64 offset)
+        public unsafe long StreamCbSeekFn(IntPtr cookie, long offset)
         {
-            IntPtr fp = cookie;
-
-            Int64 result = streamcb_stream.Seek(offset, SeekOrigin.Begin);
-
-            return result < 0 ? (Int64)Mpv.MpvErrorCode.MPV_ERROR_GENERIC : result;
+            return 0;
         }
 
-        public Int64 StreamCbSizeFn(IntPtr cookie)
+        public long StreamCbSizeFn(IntPtr cookie)
         {
-            return streamcb_stream.Length;
+            return 0;
         }
 
         public void StreamCbCloseFn(IntPtr cookie)
         {
-            streamcb_stream.Dispose();
         }
 
-        public int StreamCbOpenFn(String userdata, String uri, ref Mpv.MPV_STREAM_CB_INFO info)
+        public unsafe int StreamCbOpenFn(IntPtr user_data, sbyte *uri, IntPtr info)
         {
-            // Store File Path
-            streamcb_userdata = userdata;
-
-            // Allocate Methods
-            streamcb_callback_read_method = StreamCbReadFn;
-            streamcb_callback_read_ptr = Marshal.GetFunctionPointerForDelegate(streamcb_callback_read_method);
-            streamcb_callback_read_gc = GCHandle.Alloc(streamcb_callback_read_ptr, GCHandleType.Pinned);
-
-            streamcb_callback_seek_method = StreamCbSeekFn;
-            streamcb_callback_seek_ptr = Marshal.GetFunctionPointerForDelegate(streamcb_callback_seek_method);
-            streamcb_callback_seek_gc = GCHandle.Alloc(streamcb_callback_seek_ptr, GCHandleType.Pinned);
-
-            streamcb_callback_size_method = StreamCbSizeFn;
-            streamcb_callback_size_ptr = Marshal.GetFunctionPointerForDelegate(streamcb_callback_size_method);
-            streamcb_callback_size_gc = GCHandle.Alloc(streamcb_callback_size_ptr, GCHandleType.Pinned);
-
-            streamcb_callback_close_method = StreamCbCloseFn;
-            streamcb_callback_close_ptr = Marshal.GetFunctionPointerForDelegate(streamcb_callback_close_method);
-            streamcb_callback_close_gc = GCHandle.Alloc(streamcb_callback_close_ptr, GCHandleType.Pinned);
-
-            // Set Struct Methods
-            info.Cookie = streamcb_file_pointer;
-            info.ReadFn = streamcb_callback_read_ptr;
-            info.SeekFn = streamcb_callback_seek_ptr;
-            info.SizeFn = streamcb_callback_size_ptr;
-            info.CloseFn = streamcb_callback_close_ptr;
-
-            // TODO: Return a MPV_ERROR_LOADING_FAILED if we aren't able to allocate the file to memory
-
+            streamcb_info = MPVLib.MpvStreamCbInfo.__CreateInstance(info);
+            streamcb_info.ReadFn = StreamCbReadFn;
+            streamcb_info.SeekFn = StreamCbSeekFn;
+            streamcb_info.SizeFn = StreamCbSizeFn;
+            streamcb_info.CloseFn = StreamCbCloseFn;
             return 0;
         }
 
