@@ -109,12 +109,10 @@ namespace mpv_csharp_uwp
         }
 
         // Returns a corresponding property tuple from mpv
-        public Tuple<MpvErrorCode, String> GetProperty(string property)
+        public string GetProperty(string property)
         {
-            IntPtr lpBuffer = IntPtr.Zero;
-            int err = mpv_get_property_string(libmpv_handle, GetUtf8Bytes(property), (int)MpvFormat.MPV_FORMAT_STRING, ref lpBuffer);
-            String result = Marshal.PtrToStringAnsi(lpBuffer);
-            return Tuple.Create((MpvErrorCode)err, result);
+            IntPtr result = mpv_get_property_string(libmpv_handle, GetUtf8Bytes(property));
+            return Marshal.PtrToStringAnsi(result);
         }
 
         // Sets a mpv property with the specified value
@@ -274,7 +272,7 @@ namespace mpv_csharp_uwp
         private static extern int mpv_opengl_cb_render(IntPtr gl_context, int vp = 0);
 
         [DllImport(libmpv, EntryPoint = "mpv_get_property_string", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
-        private static extern int mpv_get_property_string(IntPtr mpv_handle, byte[] name, int format, ref IntPtr data);
+        private static extern IntPtr mpv_get_property_string(IntPtr mpv_handle, byte[] name);
 
         [DllImport(libmpv, EntryPoint = "mpv_set_property", SetLastError = true, CharSet = CharSet.Ansi, BestFitMapping = false, CallingConvention = CallingConvention.Cdecl)]
         private static extern int mpv_set_property(IntPtr mpv_handle, byte[] name, int format, ref byte[] data);
