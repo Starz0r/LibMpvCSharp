@@ -7,8 +7,8 @@
     <ProjectGuid>{DCC773A8-AB0F-471B-A733-88F6C8D31728}</ProjectGuid>
     <OutputType>AppContainerExe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>mpv_csharp_uwp</RootNamespace>
-    <AssemblyName>mpv_csharp_uwp</AssemblyName>
+    <RootNamespace>LibMpvCSharp</RootNamespace>
+    <AssemblyName>LibMpvCSharp</AssemblyName>
     <DefaultLanguage>en-US</DefaultLanguage>
     <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
     <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' ">10.0.16299.0</TargetPlatformVersion>

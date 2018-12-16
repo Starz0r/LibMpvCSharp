@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.27130.2027
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "mpv_csharp_uwp", "mpv-csharp-uwp\mpv_csharp_uwp.csproj", "{DCC773A8-AB0F-471B-A733-88F6C8D31728}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LibMpvCSharp", "LibMpvCSharp\LibMpvCSharp.csproj", "{DCC773A8-AB0F-471B-A733-88F6C8D31728}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
